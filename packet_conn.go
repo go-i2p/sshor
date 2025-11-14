@@ -165,12 +165,12 @@ func (opc *onionPacketConn) cleanupIdleTunnels(force bool) {
 	for addr, tunnel := range opc.peers {
 		idleTime := now.Sub(tunnel.lastAccess)
 		if force || idleTime > opc.idleTimeout {
+			// Remove from map first to prevent double cleanup
+			delete(opc.peers, addr)
 			// Stop the read goroutine
 			close(tunnel.stopRead)
 			// Close the connection
 			tunnel.conn.Close()
-			// Remove from map
-			delete(opc.peers, addr)
 		}
 	}
 }
