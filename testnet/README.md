@@ -12,7 +12,8 @@ The testnet spins up 20 local SSH servers, each hosting a single service type. T
 
 - **5 TCP Echo Servers**: Echo back all received TCP data
 - **5 HTTP Hello World Servers**: Return "Hello World" HTTP responses
-- **5 UDP Echo Servers**: Echo back received UDP packets
+- **3 UDP Echo Servers**: Echo back received UDP packets (direct connection only)
+- **2 UDP Relay Servers**: TCP-to-UDP relay for testing UDP through onion routes
 - **5 JSON-RPC PING Servers**: Return server status/uptime information
 
 ### Server Distribution
@@ -61,7 +62,7 @@ Tests verify each service type works correctly with direct TCP/UDP connections:
 
 - **TCP Echo**: Sends data, verifies echo response
 - **HTTP Hello**: Makes HTTP GET request, validates response
-- **UDP Echo**: Sends UDP packet, verifies echo
+- **UDP Echo**: Sends UDP packet, verifies echo (direct connection)
 - **JSON-RPC PING**: Sends JSON-RPC request, validates pong response
 
 ### Onion Routing Tests
@@ -72,7 +73,14 @@ Tests verify multi-hop routing through SSH tunnel chains:
 - **4-hop routes**: Client → Hop1 → Hop2 → Hop3 → Hop4 → Service
 - **5-hop routes**: Client → Hop1 → Hop2 → Hop3 → Hop4 → Hop5 → Service
 
-Each hop configuration tests all four service types to ensure protocol compatibility.
+Each hop configuration tests all service types that support onion routing:
+
+- **TCP Echo**: Direct TCP forwarding through hops
+- **HTTP**: Application-layer HTTP protocol over onion routes
+- **UDP Relay**: TCP-to-UDP relay enabling UDP communication through onion routes
+- **JSON-RPC**: Structured RPC protocol over onion routes
+
+> **Note**: Pure UDP echo services are tested via direct connections only. UDP through onion routes requires a TCP-to-UDP relay service at the destination, which is demonstrated by the UDP Relay servers.
 
 ### Concurrent Routing Tests
 
@@ -104,7 +112,8 @@ Spawns 10 simultaneous onion routes with different hop paths to verify:
 
 - **TCP Echo**: Simple bidirectional streaming
 - **HTTP**: Application-layer protocol over onion routes
-- **UDP**: Packet-based communication with symmetric forwarding
+- **UDP Echo**: Direct packet-based communication
+- **UDP Relay**: TCP-to-UDP relay for UDP over onion routes
 - **JSON-RPC**: Structured RPC over onion routes
 
 ## Implementation Details
@@ -123,6 +132,7 @@ testnet/
     ├── tcp_echo.go          # TCP echo service
     ├── http_hello.go        # HTTP hello service
     ├── udp_echo.go          # UDP echo service
+    ├── udp_relay.go         # TCP-to-UDP relay service
     └── jsonrpc_ping.go      # JSON-RPC ping service
 ```
 
