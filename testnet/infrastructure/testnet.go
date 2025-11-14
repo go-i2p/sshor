@@ -213,3 +213,18 @@ func getFreePort() (string, error) {
 
 	return addr, nil
 }
+
+// GetFreeUDPPort finds an available UDP port
+func GetFreeUDPPort() (string, error) {
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	addr := conn.LocalAddr().String()
+	conn.Close()
+
+	// Small delay to ensure port is released
+	time.Sleep(10 * time.Millisecond)
+
+	return addr, nil
+}
