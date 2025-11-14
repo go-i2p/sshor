@@ -267,3 +267,154 @@ func TestFinding1InvalidServerAddress(t *testing.T) {
 
 	t.Logf("Got expected error: %v", err)
 }
+
+// test_finding2_nil_server_key tests that nil ServerKey should be caught
+// during configuration validation rather than causing a panic later
+func TestFinding2NilServerKey(t *testing.T) {
+	clientSigner, serverPubKey := generateTestKeys(t)
+
+	config := Config{
+		Hops: []SSHHop{
+			{
+				Address:    "127.0.0.1:22",
+				User:       "testuser",
+				PrivateKey: clientSigner,
+				HostKey:    serverPubKey,
+			},
+		},
+		ServerAddr: "127.0.0.1:2222",
+		ServerKey:  nil, // Nil ServerKey should be validated
+		Timeout:    1 * time.Second,
+	}
+
+	router := NewRouter(config)
+	ctx := context.Background()
+
+	// After fix: should return clear error during validation
+	err := router.Start(ctx)
+
+	if err == nil {
+		t.Fatal("Expected error from nil ServerKey, got nil")
+	}
+
+	// Check that error message mentions ServerKey
+	errMsg := err.Error()
+	if errMsg == "" {
+		t.Fatal("Expected error message, got empty string")
+	}
+
+	t.Logf("Got expected validation error: %v", err)
+}
+
+// test_finding2_validation_in_new_router tests that validation
+// happens early and provides clear error messages
+func TestFinding2ValidationInNewRouter(t *testing.T) {
+	serverSigner, serverPubKey := generateTestKeys(t)
+	clientSigner, _ := generateTestKeys(t)
+
+	tests := []struct {
+		name        string
+		config      Config
+		expectError bool
+		errorText   string
+	}{
+		{
+			name: "nil ServerKey",
+			config: Config{
+				Hops: []SSHHop{
+					{
+						Address:    "127.0.0.1:22",
+						User:       "user",
+						PrivateKey: clientSigner,
+						HostKey:    serverPubKey,
+					},
+				},
+				ServerAddr: "127.0.0.1:2222",
+				ServerKey:  nil,
+				Timeout:    5 * time.Second,
+			},
+			expectError: true,
+			errorText:   "ServerKey",
+		},
+		{
+			name: "empty hops",
+			config: Config{
+				Hops:       []SSHHop{},
+				ServerAddr: "127.0.0.1:2222",
+				ServerKey:  toSSHSigner(serverSigner),
+				Timeout:    5 * time.Second,
+			},
+			expectError: true,
+			errorText:   "hop",
+		},
+		{
+			name: "nil hop PrivateKey",
+			config: Config{
+				Hops: []SSHHop{
+					{
+						Address:    "127.0.0.1:22",
+						User:       "user",
+						PrivateKey: nil,
+						HostKey:    serverPubKey,
+					},
+				},
+				ServerAddr: "127.0.0.1:2222",
+				ServerKey:  toSSHSigner(serverSigner),
+				Timeout:    5 * time.Second,
+			},
+			expectError: true,
+			errorText:   "PrivateKey",
+		},
+		{
+			name: "nil hop HostKey",
+			config: Config{
+				Hops: []SSHHop{
+					{
+						Address:    "127.0.0.1:22",
+						User:       "user",
+						PrivateKey: clientSigner,
+						HostKey:    nil,
+					},
+				},
+				ServerAddr: "127.0.0.1:2222",
+				ServerKey:  toSSHSigner(serverSigner),
+				Timeout:    5 * time.Second,
+			},
+			expectError: true,
+			errorText:   "HostKey",
+		},
+		{
+			name: "empty ServerAddr",
+			config: Config{
+				Hops: []SSHHop{
+					{
+						Address:    "127.0.0.1:22",
+						User:       "user",
+						PrivateKey: clientSigner,
+						HostKey:    serverPubKey,
+					},
+				},
+				ServerAddr: "",
+				ServerKey:  toSSHSigner(serverSigner),
+				Timeout:    5 * time.Second,
+			},
+			expectError: true,
+			errorText:   "ServerAddr",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := NewRouter(tt.config)
+			ctx := context.Background()
+			err := router.Start(ctx)
+
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("Expected error containing '%s', got nil", tt.errorText)
+				}
+				t.Logf("Got expected validation error: %v", err)
+			}
+		})
+	}
+}

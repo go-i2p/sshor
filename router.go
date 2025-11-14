@@ -39,8 +39,49 @@ func NewRouter(config Config) *Router {
 	}
 }
 
+// validateConfig checks that all required configuration fields are present
+func (r *Router) validateConfig() error {
+	// Validate ServerKey
+	if r.config.ServerKey == nil {
+		return fmt.Errorf("ServerKey is required but was nil")
+	}
+
+	// Validate Hops
+	if len(r.config.Hops) == 0 {
+		return fmt.Errorf("at least one SSH hop is required")
+	}
+
+	// Validate each hop's keys
+	for i, hop := range r.config.Hops {
+		if hop.PrivateKey == nil {
+			return fmt.Errorf("hop %d: PrivateKey is required but was nil", i+1)
+		}
+		if hop.HostKey == nil {
+			return fmt.Errorf("hop %d: HostKey is required but was nil", i+1)
+		}
+		if hop.Address == "" {
+			return fmt.Errorf("hop %d: Address is required but was empty", i+1)
+		}
+		if hop.User == "" {
+			return fmt.Errorf("hop %d: User is required but was empty", i+1)
+		}
+	}
+
+	// Validate ServerAddr
+	if r.config.ServerAddr == "" {
+		return fmt.Errorf("ServerAddr is required but was empty")
+	}
+
+	return nil
+}
+
 // Start initializes the router and starts the embedded SSH server
 func (r *Router) Start(ctx context.Context) error {
+	// Validate configuration first
+	if err := r.validateConfig(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
 	// Establish onion route
 	if err := r.connectRoute(ctx); err != nil {
 		return fmt.Errorf("failed to establish route: %w", err)
@@ -59,10 +100,7 @@ func (r *Router) connectRoute(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if len(r.config.Hops) == 0 {
-		return fmt.Errorf("no SSH hops configured")
-	}
-
+	// Configuration is already validated in Start()
 	// Connect through all hops
 	var client *gossh.Client
 	for i, hop := range r.config.Hops {
