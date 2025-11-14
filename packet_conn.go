@@ -71,11 +71,13 @@ func (opc *onionPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error)
 // For each unique destination address, a persistent TCP tunnel is created and reused.
 // Idle tunnels are automatically cleaned up after the configured timeout.
 func (opc *onionPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	opc.mu.RLock()
+	opc.mu.Lock()
 	tunnel, exists := opc.peers[addr.String()]
-	opc.mu.RUnlock()
 
 	if !exists {
+		// Release lock before creating new tunnel (which may be slow)
+		opc.mu.Unlock()
+
 		// Check if we've hit the max peer limit
 		opc.mu.RLock()
 		peerCount := len(opc.peers)
@@ -101,18 +103,20 @@ func (opc *onionPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) 
 
 		opc.mu.Lock()
 		opc.peers[addr.String()] = tunnel
-		opc.mu.Unlock()
+		// Lock will be held through the write
 
 		// Start goroutine to read responses from tunnel and forward to local UDP socket
 		go opc.readFromTunnel(tunnel)
 	} else {
-		// Update last access time
-		opc.mu.Lock()
+		// Update last access time while holding lock
 		tunnel.lastAccess = time.Now()
-		opc.mu.Unlock()
+		// Lock will be held through the write
 	}
 
-	return tunnel.conn.Write(p)
+	// Perform write while holding lock to prevent cleanup from closing tunnel
+	n, err = tunnel.conn.Write(p)
+	opc.mu.Unlock()
+	return n, err
 }
 
 // readFromTunnel reads packets from the TCP tunnel and forwards them to the local UDP socket.
