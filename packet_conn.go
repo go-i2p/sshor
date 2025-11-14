@@ -124,6 +124,22 @@ func (opc *onionPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) 
 func (opc *onionPacketConn) readFromTunnel(tunnel *tcpTunnel) {
 	buffer := make([]byte, 65535) // Max UDP packet size
 
+	// Ensure tunnel is cleaned up when goroutine exits
+	defer func() {
+		opc.mu.Lock()
+		defer opc.mu.Unlock()
+
+		// Remove tunnel from map if it still exists
+		// This ensures dead tunnels don't accumulate
+		if existingTunnel, exists := opc.peers[tunnel.addr.String()]; exists {
+			// Only remove if it's the same tunnel (not a replacement)
+			if existingTunnel == tunnel {
+				delete(opc.peers, tunnel.addr.String())
+				tunnel.conn.Close()
+			}
+		}
+	}()
+
 	for {
 		select {
 		case <-tunnel.stopRead:
@@ -138,7 +154,7 @@ func (opc *onionPacketConn) readFromTunnel(tunnel *tcpTunnel) {
 				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 					continue // Normal timeout, check stopRead and continue
 				}
-				// Real error or connection closed
+				// Real error or connection closed - defer will clean up
 				return
 			}
 
