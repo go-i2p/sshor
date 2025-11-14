@@ -4,12 +4,15 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 )
 
 // TCPEchoService implements a TCP echo server that echoes back all received data
 type TCPEchoService struct {
 	listener net.Listener
 	done     chan struct{}
+	closed   bool
+	mu       sync.Mutex
 }
 
 // NewTCPEchoService creates a new TCP echo service
@@ -22,8 +25,6 @@ func NewTCPEchoService(listener net.Listener) *TCPEchoService {
 
 // Serve starts the echo service
 func (s *TCPEchoService) Serve() error {
-	defer close(s.done)
-
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
@@ -52,6 +53,13 @@ func (s *TCPEchoService) handleConnection(conn net.Conn) {
 
 // Close shuts down the service
 func (s *TCPEchoService) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return nil
+	}
+	s.closed = true
 	close(s.done)
 	return s.listener.Close()
 }

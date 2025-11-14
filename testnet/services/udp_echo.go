@@ -3,6 +3,7 @@ package services
 import (
 	"log"
 	"net"
+	"sync"
 )
 
 // UDPEchoService implements a UDP echo server
@@ -10,6 +11,7 @@ type UDPEchoService struct {
 	conn   net.PacketConn
 	done   chan struct{}
 	closed bool
+	mu     sync.Mutex
 }
 
 // NewUDPEchoService creates a new UDP echo service
@@ -53,6 +55,9 @@ func (s *UDPEchoService) Serve() error {
 
 // Close shuts down the service
 func (s *UDPEchoService) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.closed {
 		return nil
 	}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -16,6 +17,8 @@ type JSONRPCPingService struct {
 	done      chan struct{}
 	startTime time.Time
 	reqCount  atomic.Uint64
+	closed    bool
+	mu        sync.Mutex
 }
 
 type jsonrpcRequest struct {
@@ -51,8 +54,6 @@ func NewJSONRPCPingService(listener net.Listener) *JSONRPCPingService {
 
 // Serve starts the JSON-RPC service
 func (s *JSONRPCPingService) Serve() error {
-	defer close(s.done)
-
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
@@ -144,6 +145,13 @@ func (s *JSONRPCPingService) handleRequest(req *jsonrpcRequest) *jsonrpcResponse
 
 // Close shuts down the service
 func (s *JSONRPCPingService) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return nil
+	}
+	s.closed = true
 	close(s.done)
 	return s.listener.Close()
 }
