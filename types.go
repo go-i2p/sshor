@@ -25,4 +25,5 @@ type tcpTunnel struct {
 	conn       net.Conn
 	addr       net.Addr
 	lastAccess time.Time
+	stopRead   chan struct{} // Signal to stop the read goroutine
 }
