@@ -124,14 +124,37 @@ func (r *Router) startServer() error {
 		Handler:     r.handleSSHSession,
 	}
 
+	// Channel to signal when server is ready or if an error occurs
+	errChan := make(chan error, 1)
+
 	go func() {
 		if err := r.server.ListenAndServe(); err != nil && err != ssh.ErrServerClosed {
-			// Log error - in production, use proper logging
-			fmt.Printf("SSH server error: %v\n", err)
+			errChan <- err
 		}
 	}()
 
-	return nil
+	// Wait for server to start listening or fail
+	// The server sets its listener before calling Serve(), so we can check
+	// if it's ready by attempting a brief connection
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case err := <-errChan:
+			return fmt.Errorf("SSH server failed to start: %w", err)
+		case <-timeout:
+			return fmt.Errorf("SSH server startup timeout")
+		case <-ticker.C:
+			// Check if server is listening by attempting to connect
+			conn, err := net.DialTimeout("tcp", r.config.ServerAddr, 50*time.Millisecond)
+			if err == nil {
+				conn.Close()
+				return nil // Server is ready
+			}
+		}
+	}
 }
 
 // handleSSHSession handles incoming SSH connections
