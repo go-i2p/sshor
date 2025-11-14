@@ -172,12 +172,21 @@ func (r *Router) startServer() error {
 	}()
 
 	// Wait for server to start listening or fail
-	// The server sets its listener before calling Serve(), so we can check
-	// if it's ready by attempting a brief connection
+	// Give the server a brief moment to detect binding errors before checking connectivity
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
 	timeout := time.After(5 * time.Second)
+
+	// First check: wait briefly for immediate errors (e.g., port already in use)
+	select {
+	case err := <-errChan:
+		return fmt.Errorf("SSH server failed to start: %w", err)
+	case <-time.After(50 * time.Millisecond):
+		// No immediate error, proceed to connectivity check
+	}
+
+	// Now check for connectivity and continue monitoring for errors
 	for {
 		select {
 		case err := <-errChan:
