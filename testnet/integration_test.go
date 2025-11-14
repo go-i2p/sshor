@@ -158,6 +158,39 @@ func startUDPEcho(t *testing.T, config *infrastructure.ServerConfig) *serviceRun
 	return runner
 }
 
+func startUDPRelay(t *testing.T, tn *infrastructure.Testnet, config *infrastructure.ServerConfig) *serviceRunner {
+	// Find a UDP Echo service to relay to
+	var udpTarget string
+	for _, c := range tn.Configs {
+		if c.ServiceType == infrastructure.UDPEcho {
+			udpTarget = c.ServiceAddr
+			break
+		}
+	}
+
+	if udpTarget == "" {
+		t.Fatalf("No UDP Echo service found for relay")
+	}
+
+	listener, err := net.Listen("tcp", config.ServiceAddr)
+	if err != nil {
+		t.Fatalf("Failed to create UDP relay listener for server %d: %v", config.Index, err)
+	}
+
+	service := services.NewUDPRelayService(listener, udpTarget)
+	runner := &serviceRunner{
+		service: service,
+		errChan: make(chan error, 1),
+	}
+
+	go func() {
+		runner.errChan <- service.Serve()
+	}()
+
+	t.Logf("Started UDP Relay service %d at %s (target: %s)", config.Index, config.ServiceAddr, udpTarget)
+	return runner
+}
+
 func startJSONRPCPing(t *testing.T, config *infrastructure.ServerConfig) *serviceRunner {
 	listener, err := net.Listen("tcp", config.ServiceAddr)
 	if err != nil {
@@ -363,9 +396,9 @@ func testOnionRouting(t *testing.T, ctx context.Context, tn *infrastructure.Test
 	for _, hc := range hopConfigs {
 		t.Run(hc.name, func(t *testing.T) {
 			// Test TCP and HTTP services through onion routes
-			// UDP requires TCP-to-UDP proxy which is beyond basic onion routing
 			testOnionRouteTCPEcho(t, ctx, tn, hc.hops)
 			testOnionRouteHTTPHello(t, ctx, tn, hc.hops)
+			testOnionRouteUDPRelay(t, ctx, tn, hc.hops)
 			testOnionRouteJSONRPC(t, ctx, tn, hc.hops)
 		})
 	}
@@ -499,10 +532,10 @@ func testOnionRouteHTTPHello(t *testing.T, ctx context.Context, tn *infrastructu
 	t.Logf("Onion HTTP Hello (%d hops) test passed: %q", len(hops), string(body))
 }
 
-func testOnionRouteUDPEcho(t *testing.T, ctx context.Context, tn *infrastructure.Testnet, hops []int) {
+func testOnionRouteUDPRelay(t *testing.T, ctx context.Context, tn *infrastructure.Testnet, hops []int) {
 	var targetConfig *infrastructure.ServerConfig
 	for _, c := range tn.Configs {
-		if c.ServiceType == infrastructure.UDPEcho {
+		if c.ServiceType == infrastructure.UDPRelay {
 			inPath := false
 			for _, hop := range hops {
 				if hop == c.Index {
@@ -518,7 +551,7 @@ func testOnionRouteUDPEcho(t *testing.T, ctx context.Context, tn *infrastructure
 	}
 
 	if targetConfig == nil {
-		t.Skip("No suitable UDP Echo target found")
+		t.Skip("No suitable UDP Relay target found")
 		return
 	}
 
@@ -532,44 +565,36 @@ func testOnionRouteUDPEcho(t *testing.T, ctx context.Context, tn *infrastructure
 	}
 	defer router.Close()
 
-	// Get PacketConn through onion route
-	// First bind to local address
-	localAddr, err := infrastructure.GetFreeUDPPort()
+	// Connect to UDP relay service through onion route
+	conn, err := router.Dial("tcp", targetConfig.ServiceAddr)
 	if err != nil {
-		t.Fatalf("Failed to get free UDP port: %v", err)
+		t.Fatalf("Failed to dial relay through onion route: %v", err)
+	}
+	defer conn.Close()
+
+	client := services.NewUDPRelayClient(conn)
+
+	testData := []byte(fmt.Sprintf("UDP relay test %d hops", len(hops)))
+
+	// Send packet through relay
+	if err := client.SendPacket(testData); err != nil {
+		t.Fatalf("Failed to send packet: %v", err)
 	}
 
-	pc, err := router.ListenPacket("udp", localAddr)
+	// Set deadline for response
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+
+	// Receive echoed packet
+	response, err := client.ReceivePacket()
 	if err != nil {
-		t.Fatalf("Failed to create packet conn: %v", err)
-	}
-	defer pc.Close()
-
-	testData := []byte(fmt.Sprintf("UDP onion test %d hops", len(hops)))
-
-	targetAddr, err := net.ResolveUDPAddr("udp", targetConfig.ServiceAddr)
-	if err != nil {
-		t.Fatalf("Failed to resolve target address: %v", err)
+		t.Fatalf("Failed to receive packet: %v", err)
 	}
 
-	// Send packet
-	if _, err := pc.WriteTo(testData, targetAddr); err != nil {
-		t.Fatalf("Failed to write packet: %v", err)
+	if !bytes.Equal(response, testData) {
+		t.Fatalf("Expected %q, got %q", testData, response)
 	}
 
-	pc.SetReadDeadline(time.Now().Add(10 * time.Second))
-
-	buf := make([]byte, 1024)
-	n, addr, err := pc.ReadFrom(buf)
-	if err != nil {
-		t.Fatalf("Failed to read packet: %v", err)
-	}
-
-	if !bytes.Equal(buf[:n], testData) {
-		t.Fatalf("Expected %q, got %q", testData, buf[:n])
-	}
-
-	t.Logf("Onion UDP Echo (%d hops) test passed from %s: %q", len(hops), addr, buf[:n])
+	t.Logf("Onion UDP Relay (%d hops) test passed: %q", len(hops), response)
 }
 
 func testOnionRouteJSONRPC(t *testing.T, ctx context.Context, tn *infrastructure.Testnet, hops []int) {
@@ -651,7 +676,8 @@ func TestConcurrentOnionRoutes(t *testing.T) {
 	distribution := map[infrastructure.ServiceType]int{
 		infrastructure.TCPEcho:     5,
 		infrastructure.HTTPHello:   5,
-		infrastructure.UDPEcho:     5,
+		infrastructure.UDPEcho:     3,
+		infrastructure.UDPRelay:    2,
 		infrastructure.JSONRPCPing: 5,
 	}
 
