@@ -3,6 +3,7 @@ package sshor
 
 import (
 	"net"
+	"time"
 
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -21,6 +22,7 @@ type routeSession struct {
 
 // tcpTunnel represents a TCP tunnel for UDP packet forwarding
 type tcpTunnel struct {
-	conn net.Conn
-	addr net.Addr
+	conn       net.Conn
+	addr       net.Addr
+	lastAccess time.Time
 }

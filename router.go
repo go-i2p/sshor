@@ -282,11 +282,17 @@ func (r *Router) ListenPacket(network, address string) (net.PacketConn, error) {
 		return nil, fmt.Errorf("failed to create local UDP listener: %w", err)
 	}
 
-	return &onionPacketConn{
-		router:    r,
-		localConn: localConn,
-		peers:     make(map[string]*tcpTunnel),
-	}, nil
+	opc := &onionPacketConn{
+		router:      r,
+		localConn:   localConn,
+		peers:       make(map[string]*tcpTunnel),
+		idleTimeout: defaultTunnelIdleTimeout,
+	}
+
+	// Start background cleanup routine
+	opc.startCleanupRoutine()
+
+	return opc, nil
 }
 
 // Close shuts down the router
