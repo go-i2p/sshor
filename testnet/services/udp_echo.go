@@ -7,22 +7,22 @@ import (
 
 // UDPEchoService implements a UDP echo server
 type UDPEchoService struct {
-	conn net.PacketConn
-	done chan struct{}
+	conn   net.PacketConn
+	done   chan struct{}
+	closed bool
 }
 
 // NewUDPEchoService creates a new UDP echo service
 func NewUDPEchoService(conn net.PacketConn) *UDPEchoService {
 	return &UDPEchoService{
-		conn: conn,
-		done: make(chan struct{}),
+		conn:   conn,
+		done:   make(chan struct{}),
+		closed: false,
 	}
 }
 
 // Serve starts the UDP echo service
 func (s *UDPEchoService) Serve() error {
-	defer close(s.done)
-
 	buffer := make([]byte, 65535)
 	for {
 		select {
@@ -53,6 +53,10 @@ func (s *UDPEchoService) Serve() error {
 
 // Close shuts down the service
 func (s *UDPEchoService) Close() error {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
 	close(s.done)
 	return s.conn.Close()
 }

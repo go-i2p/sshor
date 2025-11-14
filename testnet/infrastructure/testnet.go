@@ -18,6 +18,7 @@ const (
 	TCPEcho ServiceType = iota
 	HTTPHello
 	UDPEcho
+	UDPRelay // TCP-to-UDP relay for testing UDP through onion routes
 	JSONRPCPing
 )
 
@@ -29,6 +30,8 @@ func (st ServiceType) String() string {
 		return "HTTP Hello"
 	case UDPEcho:
 		return "UDP Echo"
+	case UDPRelay:
+		return "UDP Relay"
 	case JSONRPCPing:
 		return "JSON-RPC PING"
 	default:
